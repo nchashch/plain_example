@@ -1,0 +1,15 @@
+[package]
+name = "custom"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+plain_types = { git = "https://github.com/nchashch/plain" }
+plain_node = { git = "https://github.com/nchashch/plain" }
+plain_state = { git = "https://github.com/nchashch/plain" }
+plain_authorization = { git = "https://github.com/nchashch/plain" }
+
+heed = { git = "https://github.com/meilisearch/heed", tag = "v0.12.4" }
+serde = { version = "1.0.163", features = ["derive"] }
