@@ -3,5 +3,6 @@
 members = [
 "main",
 "cli",
+"gui",
 "custom",
 ]

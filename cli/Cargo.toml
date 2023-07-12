@@ -8,10 +8,15 @@ edition = "2021"
 [dependencies]
 custom = { path = "../custom" }
 
-plain_types = { git = "https://github.com/nchashch/plain" }
-plain_api = { git = "https://github.com/nchashch/plain" }
-plain_wallet = { git = "https://github.com/nchashch/plain" }
-plain_miner = { git = "https://github.com/nchashch/plain" }
+# plain_types = { git = "https://github.com/nchashch/plain" }
+# plain_api = { git = "https://github.com/nchashch/plain" }
+# plain_wallet = { git = "https://github.com/nchashch/plain" }
+# plain_miner = { git = "https://github.com/nchashch/plain" }
+
+plain_types = { path = "../../plain/types" }
+plain_api = { path = "../../plain/api" }
+plain_wallet = { path = "../../plain/wallet" }
+plain_miner = { path = "../../plain/miner" }
 
 bincode = "1.3.3"
 clap = { version = "4.3.9", features = ["derive"] }

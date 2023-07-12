@@ -1,0 +1,22 @@
+[package]
+name = "gui"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+eframe = "0.22.0"
+
+plain_node = { path = "../../plain/node" }
+plain_types = { path = "../../plain/types" }
+plain_wallet = { path = "../../plain/wallet" }
+plain_miner = { path = "../../plain/miner" }
+
+custom = { path = "../custom" }
+anyhow = "1.0.71"
+project-root = "0.2.2"
+tokio = { version = "1.29.1", features = ["rt-multi-thread", "macros"] }
+bip39 = "2.0.0"
+sha256 = "1.1.4"
+futures = "0.3.28"
