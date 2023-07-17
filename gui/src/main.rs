@@ -57,7 +57,7 @@ impl MyEguiApp {
         let config = Config { net_addr, datadir };
 
         let (mine_tx, mut mine_rx) = tokio::sync::mpsc::channel(32);
-        let mut app = MyEguiApp {
+        let app = MyEguiApp {
             node,
             wallet,
             miner,
@@ -74,19 +74,31 @@ impl MyEguiApp {
         let app0 = app.clone();
         tokio::task::spawn(async move {
             loop {
+                let addresses = app0.wallet.get_addresses().unwrap();
+                let utxos = app0.node.get_utxos_by_addresses(&addresses).unwrap();
+                let outpoints: Vec<_> = app0.wallet.get_utxos().unwrap().into_keys().collect();
+                let spent = app0.node.get_spent_utxos(&outpoints).unwrap();
+                app0.wallet.put_utxos(&utxos).unwrap();
+                app0.wallet.delete_utxos(&spent).unwrap();
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
+        });
+        let mut app0 = app.clone();
+        tokio::task::spawn(async move {
+            loop {
                 let _ = mine_rx.recv().await;
                 const NUM_TRANSACTIONS: usize = 1000;
-                let (transactions, fee) = app.node.get_transactions(NUM_TRANSACTIONS).unwrap();
+                let (transactions, fee) = app0.node.get_transactions(NUM_TRANSACTIONS).unwrap();
                 let coinbase = match fee {
                     0 => vec![],
                     _ => vec![Output {
-                        address: app.wallet.get_new_address().unwrap(),
+                        address: app0.wallet.get_new_address().unwrap(),
                         content: plain_types::Content::Value(fee),
                     }],
                 };
                 let body = plain_types::Body::new(transactions, coinbase);
-                let prev_side_hash = app.node.get_best_hash().unwrap();
-                let prev_main_hash = app.miner.drivechain.get_mainchain_tip().await.unwrap();
+                let prev_side_hash = app0.node.get_best_hash().unwrap();
+                let prev_main_hash = app0.miner.drivechain.get_mainchain_tip().await.unwrap();
                 println!("got mainchain tip");
                 let header = plain_types::Header {
                     merkle_root: body.compute_merkle_root(),
@@ -94,22 +106,22 @@ impl MyEguiApp {
                     prev_main_hash,
                 };
                 let bribe =
-                    bitcoin::Amount::from_str_in(&app.bmm_bribe, bitcoin::Denomination::Bitcoin)
+                    bitcoin::Amount::from_str_in(&app0.bmm_bribe, bitcoin::Denomination::Bitcoin)
                         .unwrap_or(bitcoin::Amount::ZERO);
-                app.miner
+                app0.miner
                     .attempt_bmm(bribe.to_sat(), 0, header, body)
                     .await
                     .unwrap();
                 println!("attempted bmm");
-                app.miner.generate().await.unwrap();
+                app0.miner.generate().await.unwrap();
                 println!("generated block");
-                if let Ok(Some((header, body))) = app.miner.confirm_bmm().await {
-                    let result = app.node.submit_block(&header, &body).await;
+                if let Ok(Some((header, body))) = app0.miner.confirm_bmm().await {
+                    let result = app0.node.submit_block(&header, &body).await;
                     println!("submitted block: {:?}", result);
                 }
             }
         });
-        Ok(app0)
+        Ok(app)
     }
 
     fn addresses(&mut self, ui: &mut egui::Ui) {
@@ -125,19 +137,32 @@ impl MyEguiApp {
                     } else {
                         format!("{address}")
                     };
-                    ui.text_edit_singleline(&mut address);
+                    let address_edit =
+                        egui::TextEdit::singleline(&mut address).hint_text("address");
+                    ui.add(address_edit);
                     ui.end_row();
                 }
             });
     }
 
     fn seed(&mut self, ui: &mut egui::Ui) {
-        let seed_edit = egui::TextEdit::singleline(&mut self.seed).hint_text("seed");
-        ui.add(seed_edit);
+        ui.horizontal(|ui| {
+            let seed_edit = egui::TextEdit::singleline(&mut self.seed).hint_text("seed");
+            ui.add(seed_edit);
+            if ui.button("generate").clicked() {
+                use itertools::Itertools;
+                use rand::prelude::*;
+
+                let mut rng = rand::thread_rng();
+                let entropy: [u8; 32] = rng.gen();
+                let mnemonic = bip39::Mnemonic::from_entropy(&entropy).unwrap();
+                self.seed = mnemonic.word_iter().intersperse(" ").collect();
+            }
+        });
         let passphrase_edit =
             egui::TextEdit::singleline(&mut self.passphrase).hint_text("passphrase");
         ui.add(passphrase_edit);
-        if ui.button("set seed").clicked() {
+        if ui.button("set").clicked() {
             let seed = bip39::Mnemonic::parse(&self.seed)
                 .unwrap()
                 .to_seed(&self.passphrase);
@@ -165,6 +190,9 @@ impl MyEguiApp {
             }
             ui.checkbox(&mut self.deposit, "Deposit");
         });
+
+        let num_addresses = self.wallet.get_num_addresses().unwrap();
+        ui.label(format!("{num_addresses} addresses generated"));
     }
 
     fn balance(&mut self, ui: &mut egui::Ui) {
@@ -175,14 +203,6 @@ impl MyEguiApp {
             ui.text_edit_singleline(&mut balance);
             ui.label("BTC");
         });
-        if ui.button("Sync").clicked() {
-            let addresses = self.wallet.get_addresses().unwrap();
-            let utxos = self.node.get_utxos_by_addresses(&addresses).unwrap();
-            let outpoints: Vec<_> = self.wallet.get_utxos().unwrap().into_keys().collect();
-            let spent = self.node.get_spent_utxos(&outpoints).unwrap();
-            self.wallet.put_utxos(&utxos).unwrap();
-            self.wallet.delete_utxos(&spent).unwrap();
-        }
     }
 
     fn utxos(&mut self, ui: &mut egui::Ui) {
@@ -208,12 +228,16 @@ impl MyEguiApp {
     }
 
     fn deposit(&mut self, ui: &mut egui::Ui) {
-        ui.text_edit_singleline(&mut self.deposit_amount);
+        let deposit_amount_edit =
+            egui::TextEdit::singleline(&mut self.deposit_amount).hint_text("deposit amount");
+        ui.add(deposit_amount_edit);
         let amount =
             bitcoin::Amount::from_str_in(&self.deposit_amount, bitcoin::Denomination::Bitcoin)
                 .unwrap_or(bitcoin::Amount::ZERO);
         ui.label(format!("{amount}"));
-        ui.text_edit_singleline(&mut self.deposit_fee);
+        let deposit_fee_edit =
+            egui::TextEdit::singleline(&mut self.deposit_fee).hint_text("deposit fee");
+        ui.add(deposit_fee_edit);
         let fee = bitcoin::Amount::from_str_in(&self.deposit_fee, bitcoin::Denomination::Bitcoin)
             .unwrap_or(bitcoin::Amount::ZERO);
         ui.label(format!("{fee}"));
@@ -236,7 +260,8 @@ impl MyEguiApp {
         let best_hash = self.node.get_best_hash().unwrap();
         ui.label(format!("Block height: {block_height}"));
         ui.label(format!("Best hash: {best_hash}"));
-        ui.text_edit_singleline(&mut self.bmm_bribe);
+        let bribe_edit = egui::TextEdit::singleline(&mut self.bmm_bribe).hint_text("BMM bribe");
+        ui.add(bribe_edit);
         let bribe = bitcoin::Amount::from_str_in(&self.bmm_bribe, bitcoin::Denomination::Bitcoin)
             .unwrap_or(bitcoin::Amount::ZERO);
         ui.label(format!("{bribe}"));
@@ -252,27 +277,34 @@ impl eframe::App for MyEguiApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         // ctx.set_pixels_per_point(2.);
         egui::CentralPanel::default().show(ctx, |ui| {
-            egui::Window::new("Blockchain").show(ctx, |ui| {
-                self.blockchain(ui);
-            });
-            egui::Window::new("Wallet").show(ctx, |ui| {
-                ui.heading("Balance");
-                self.balance(ui);
-                ui.collapsing("Deposit", |ui| {
+            if self.wallet.has_seed().unwrap() {
+                egui::Window::new("Miner").show(ctx, |ui| {
+                    self.blockchain(ui);
+                });
+                egui::Window::new("Deposit").show(ctx, |ui| {
                     self.deposit(ui);
                 });
-                ui.collapsing("UTXOs", |ui| {
+                egui::Window::new("Spendable UTXOs").show(ctx, |ui| {
                     self.utxos(ui);
                 });
-                ui.heading("Receive Addresses");
-                self.get_new_address(ui);
-                ui.collapsing("Addresses", |ui| {
-                    self.addresses(ui);
+                egui::Window::new("Wallet").show(ctx, |ui| {
+                    ui.heading("Balance");
+                    self.balance(ui);
+                    ui.heading("Receive Addresses");
+                    self.get_new_address(ui);
                 });
-                ui.collapsing("Seed", |ui| {
+                /*
+                egui::Window::new("Seed").show(ctx, |ui| {
                     self.seed(ui);
                 });
-            });
+                */
+            } else {
+                ui.centered_and_justified(|ui| {});
+                ui.vertical_centered(|ui| {
+                    ui.heading("Set Seed");
+                    self.seed(ui);
+                });
+            }
         });
     }
 }
@@ -286,3 +318,6 @@ pub fn format_deposit_address(str_dest: &str) -> String {
     let hash: String = hash[..6].into();
     format!("{}{}", deposit_address, hash)
 }
+
+// Testing seed 0: resist miss peasant neither curve near chef crush chapter patch run best
+// Testing seed 1: valve six lady gossip muscle rather dry elephant void catalog elder surprise
