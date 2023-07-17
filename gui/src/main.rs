@@ -2,13 +2,14 @@ use std::{collections::HashSet, net::SocketAddr, path::PathBuf, str::FromStr};
 
 use custom::{Authorization, CustomContent, CustomState};
 use eframe::egui;
+use futures::task::LocalSpawnExt;
 use plain_miner::MainClient as _;
 use plain_types::bitcoin;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let native_options = eframe::NativeOptions::default();
-    let app = MyEguiApp::new()?;
+    let app = MyEguiApp::new().await?;
     eframe::run_native("My egui App", native_options, Box::new(|cc| Box::new(app)));
     Ok(())
 }
@@ -20,11 +21,13 @@ type Miner = plain_miner::Miner<Authorization, CustomContent>;
 type Output = plain_types::Output<CustomContent>;
 type AuthorizedTransaction = plain_types::AuthorizedTransaction<Authorization, CustomContent>;
 
+#[derive(Clone)]
 struct Config {
     net_addr: SocketAddr,
     datadir: PathBuf,
 }
 
+#[derive(Clone)]
 struct MyEguiApp {
     node: Node,
     wallet: Wallet,
@@ -38,10 +41,11 @@ struct MyEguiApp {
 
     deposit_amount: String,
     deposit_fee: String,
+    mine_tx: tokio::sync::mpsc::Sender<()>,
 }
 
 impl MyEguiApp {
-    fn new() -> anyhow::Result<Self> {
+    async fn new() -> anyhow::Result<Self> {
         const DEFAULT_NET_PORT: u16 = 4000;
         let net_port = DEFAULT_NET_PORT;
         let net_addr: SocketAddr = format!("127.0.0.1:{net_port}").parse()?;
@@ -51,7 +55,9 @@ impl MyEguiApp {
         let wallet = Wallet::new(&wallet_path)?;
         let miner = Miner::new(0, "localhost", 18443)?;
         let config = Config { net_addr, datadir };
-        Ok(MyEguiApp {
+
+        let (mine_tx, mut mine_rx) = tokio::sync::mpsc::channel(32);
+        let mut app = MyEguiApp {
             node,
             wallet,
             miner,
@@ -63,7 +69,47 @@ impl MyEguiApp {
             bmm_bribe: "0.001".into(),
             deposit_amount: "".into(),
             deposit_fee: "".into(),
-        })
+            mine_tx,
+        };
+        let app0 = app.clone();
+        tokio::task::spawn(async move {
+            loop {
+                let _ = mine_rx.recv().await;
+                const NUM_TRANSACTIONS: usize = 1000;
+                let (transactions, fee) = app.node.get_transactions(NUM_TRANSACTIONS).unwrap();
+                let coinbase = match fee {
+                    0 => vec![],
+                    _ => vec![Output {
+                        address: app.wallet.get_new_address().unwrap(),
+                        content: plain_types::Content::Value(fee),
+                    }],
+                };
+                let body = plain_types::Body::new(transactions, coinbase);
+                let prev_side_hash = app.node.get_best_hash().unwrap();
+                let prev_main_hash = app.miner.drivechain.get_mainchain_tip().await.unwrap();
+                println!("got mainchain tip");
+                let header = plain_types::Header {
+                    merkle_root: body.compute_merkle_root(),
+                    prev_side_hash,
+                    prev_main_hash,
+                };
+                let bribe =
+                    bitcoin::Amount::from_str_in(&app.bmm_bribe, bitcoin::Denomination::Bitcoin)
+                        .unwrap_or(bitcoin::Amount::ZERO);
+                app.miner
+                    .attempt_bmm(bribe.to_sat(), 0, header, body)
+                    .await
+                    .unwrap();
+                println!("attempted bmm");
+                app.miner.generate().await.unwrap();
+                println!("generated block");
+                if let Ok(Some((header, body))) = app.miner.confirm_bmm().await {
+                    let result = app.node.submit_block(&header, &body).await;
+                    println!("submitted block: {:?}", result);
+                }
+            }
+        });
+        Ok(app0)
     }
 
     fn addresses(&mut self, ui: &mut egui::Ui) {
@@ -195,33 +241,9 @@ impl MyEguiApp {
             .unwrap_or(bitcoin::Amount::ZERO);
         ui.label(format!("{bribe}"));
         if ui.button("attempt bmm").clicked() {
-            const NUM_TRANSACTIONS: usize = 1000;
-            let (transactions, fee) = self.node.get_transactions(NUM_TRANSACTIONS).unwrap();
-            let coinbase = match fee {
-                0 => vec![],
-                _ => vec![Output {
-                    address: self.wallet.get_new_address().unwrap(),
-                    content: plain_types::Content::Value(fee),
-                }],
-            };
-            let body = plain_types::Body::new(transactions, coinbase);
-            let prev_side_hash = self.node.get_best_hash().unwrap();
-            // FIXME: Do this in a tokio task, so the app does not freeze.
-            let prev_main_hash =
-                futures::executor::block_on(self.miner.drivechain.get_mainchain_tip()).unwrap();
-            let header = plain_types::Header {
-                merkle_root: body.compute_merkle_root(),
-                prev_side_hash,
-                prev_main_hash,
-            };
-            futures::executor::block_on(self.miner.attempt_bmm(bribe.to_sat(), 0, header, body))
-                .unwrap();
-            futures::executor::block_on(self.miner.generate()).unwrap();
-            if let Some((header, body)) =
-                futures::executor::block_on(self.miner.confirm_bmm()).unwrap_or_else(|_err| None)
-            {
-                futures::executor::block_on(self.node.submit_block(&header, &body)).unwrap();
-            }
+            self.mine_tx.try_send(()).unwrap_or_else(|err| {
+                println!("failed to trigger miner: {err}");
+            });
         }
     }
 }
