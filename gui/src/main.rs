@@ -43,6 +43,10 @@ struct MyEguiApp {
     value: String,
     fee: String,
 
+    withdraw_value: String,
+    withdraw_fee: String,
+    main_fee: String,
+
     error: bool,
     error_text: String,
 
@@ -84,6 +88,10 @@ impl MyEguiApp {
             destination: "".into(),
             value: "".into(),
             fee: "0.001".into(),
+
+            withdraw_value: "".into(),
+            withdraw_fee: "0.001".into(),
+            main_fee: "0.001".into(),
         };
         let app0 = app.clone();
         tokio::task::spawn(async move {
@@ -226,9 +234,15 @@ impl MyEguiApp {
         let deposits = utxos
             .iter()
             .filter(|(outpoint, _)| matches!(outpoint, plain_types::OutPoint::Deposit(_)));
-        let regulars = utxos
+        let values = utxos.iter().filter(|(outpoint, output)| {
+            matches!(outpoint, plain_types::OutPoint::Regular { .. }) && output.content.is_value()
+        });
+        let withdrawals = utxos
             .iter()
-            .filter(|(outpoint, _)| matches!(outpoint, plain_types::OutPoint::Regular { .. }));
+            .filter(|(outpoint, output)| output.content.is_withdrawal());
+        let customs = utxos.iter().filter(|(outpoint, output)| {
+            matches!(outpoint, plain_types::OutPoint::Regular { .. }) && output.content.is_custom()
+        });
         let coinbases = utxos
             .iter()
             .filter(|(outpoint, _)| matches!(outpoint, plain_types::OutPoint::Coinbase { .. }));
@@ -252,15 +266,55 @@ impl MyEguiApp {
                 });
         });
 
-        egui::CollapsingHeader::new("Regulars").show(ui, |ui| {
+        egui::CollapsingHeader::new("Values").show(ui, |ui| {
             egui::ScrollArea::vertical()
                 .max_height(300.)
                 .show(ui, |ui| {
-                    egui::Grid::new("regulars")
+                    egui::Grid::new("values")
                         .striped(true)
                         .max_col_width(400.)
                         .show(ui, |ui| {
-                            for (outpoint, output) in regulars {
+                            for (outpoint, output) in values {
+                                ui.vertical(|ui| {
+                                    ui.label(format!("outpoint: {outpoint}"));
+                                    ui.label(format!("address: {}", output.address,));
+                                    ui.label(format!("content: {:?}", output.content));
+                                });
+                                ui.end_row();
+                            }
+                        });
+                });
+        });
+
+        egui::CollapsingHeader::new("Withdrawals").show(ui, |ui| {
+            egui::ScrollArea::vertical()
+                .max_height(300.)
+                .show(ui, |ui| {
+                    egui::Grid::new("withdrawals")
+                        .striped(true)
+                        .max_col_width(400.)
+                        .show(ui, |ui| {
+                            for (outpoint, output) in withdrawals {
+                                ui.vertical(|ui| {
+                                    ui.label(format!("outpoint: {outpoint}"));
+                                    ui.label(format!("address: {}", output.address,));
+                                    ui.label(format!("content: {:?}", output.content));
+                                });
+                                ui.end_row();
+                            }
+                        });
+                });
+        });
+
+        egui::CollapsingHeader::new("Customs").show(ui, |ui| {
+            egui::ScrollArea::vertical()
+                .max_height(300.)
+                .show(ui, |ui| {
+                    egui::Grid::new("customs")
+                        .striped(true)
+                        .max_col_width(400.)
+                        .show(ui, |ui| {
+                            for (outpoint, output) in customs {
                                 ui.vertical(|ui| {
                                     ui.label(format!("outpoint: {outpoint}"));
                                     ui.label(format!("address: {}", output.address,));
@@ -338,6 +392,114 @@ impl MyEguiApp {
         }
     }
 
+    fn pending_withdrawal_bundle(&mut self, ui: &mut egui::Ui) {
+        let withdrawal_bundle = self.node.get_pending_withdrawal_bundle().unwrap();
+        match withdrawal_bundle {
+            Some(bundle) => {
+                use plain_types::GetValue;
+                let pending_balance = bundle
+                    .spent_utxos
+                    .values()
+                    .map(|output| output.content.get_value())
+                    .sum::<u64>();
+                let pending_balance = bitcoin::Amount::from_sat(pending_balance);
+                let mut pending_balance =
+                    pending_balance.to_string_in(bitcoin::Denomination::Bitcoin);
+                ui.heading("Pending Balance");
+                ui.horizontal(|ui| {
+                    ui.text_edit_singleline(&mut pending_balance);
+                    ui.label("BTC");
+                });
+                ui.heading("Pending Bundle");
+                let mut spent_utxos: Vec<_> = bundle.spent_utxos.iter().collect();
+                spent_utxos.sort_by_key(|(outpoint, _)| plain_types::hash(outpoint));
+                egui::CollapsingHeader::new("Pending Withdrawals").show(ui, |ui| {
+                    egui::ScrollArea::vertical()
+                        .max_height(300.)
+                        .show(ui, |ui| {
+                            egui::Grid::new("pending_withdrawals")
+                                .striped(true)
+                                .max_col_width(400.)
+                                .show(ui, |ui| {
+                                    for (outpoint, output) in spent_utxos {
+                                        ui.vertical(|ui| {
+                                            ui.label(format!("outpoint: {outpoint}"));
+                                            ui.label(format!("address: {}", output.address,));
+                                            ui.label(format!("content: {:?}", output.content));
+                                        });
+                                        ui.end_row();
+                                    }
+                                });
+                        });
+                });
+                egui::CollapsingHeader::new("Mainchain Transaction").show(ui, |ui| {
+                    let mut txid_str = format!("{}", bundle.transaction.txid());
+                    let mut transaction_str = format!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!(bundle.transaction))
+                            .unwrap()
+                    );
+                    ui.label("Mainchain Withdrawal Bundle TXID");
+                    ui.text_edit_singleline(&mut txid_str);
+                    ui.label("Mainchain Withdrawal Bundle Transaction");
+                    let main_transaction_edit =
+                        egui::TextEdit::multiline(&mut transaction_str).code_editor();
+                    ui.add(main_transaction_edit);
+                });
+            }
+            None => {
+                ui.label("No bundle pending.");
+            }
+        }
+    }
+
+    fn withdraw(&mut self, ui: &mut egui::Ui) {
+        let value_edit =
+            egui::TextEdit::singleline(&mut self.withdraw_value).hint_text("Withdrawal Value");
+        ui.add(value_edit);
+        let fee_edit =
+            egui::TextEdit::singleline(&mut self.withdraw_fee).hint_text("Sidechain Fee");
+        ui.add(fee_edit);
+        let main_fee_edit =
+            egui::TextEdit::singleline(&mut self.main_fee).hint_text("Mainchain Fee");
+        ui.add(main_fee_edit);
+        if ui.button("Withdraw").clicked() {
+            let value: Option<bitcoin::Amount> =
+                bitcoin::Amount::from_str_in(&self.withdraw_value, bitcoin::Denomination::Bitcoin)
+                    .ok();
+            let fee: Option<bitcoin::Amount> =
+                bitcoin::Amount::from_str_in(&self.withdraw_fee, bitcoin::Denomination::Bitcoin)
+                    .ok();
+            let main_fee: Option<bitcoin::Amount> =
+                bitcoin::Amount::from_str_in(&self.main_fee, bitcoin::Denomination::Bitcoin).ok();
+            match (value, fee, main_fee) {
+                (Some(value), Some(fee), Some(main_fee)) => {
+                    let destination = futures::executor::block_on(
+                        self.miner.drivechain.client.getnewaddress("", "legacy"),
+                    )
+                    .unwrap();
+                    let transaction = self
+                        .wallet
+                        .create_withdrawal(
+                            destination,
+                            value.to_sat(),
+                            main_fee.to_sat(),
+                            fee.to_sat(),
+                        )
+                        .unwrap();
+                    let transaction = self.wallet.authorize(transaction).unwrap();
+                    if futures::executor::block_on(self.node.submit_transaction(&transaction))
+                        .is_err()
+                    {
+                        self.error = true;
+                        self.error_text = "Can't add double spending transaction.".into();
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
     fn send(&mut self, ui: &mut egui::Ui) {
         let destination_edit =
             egui::TextEdit::singleline(&mut self.destination).hint_text("Destination Address");
@@ -402,13 +564,14 @@ impl eframe::App for MyEguiApp {
                 egui::Window::new("Send").show(ctx, |ui| {
                     self.send(ui);
                 });
-                /*
-                egui::Window::new("Seed").show(ctx, |ui| {
-                    self.seed(ui);
+                egui::Window::new("Withdraw").show(ctx, |ui| {
+                    self.withdraw(ui);
                 });
-                */
+                egui::Window::new("Pending Withdrawal Bundle").show(ctx, |ui| {
+                    self.pending_withdrawal_bundle(ui);
+                });
             } else {
-                ui.centered_and_justified(|ui| {});
+                ui.centered_and_justified(|_| {});
                 ui.vertical_centered(|ui| {
                     ui.heading("Set Seed");
                     self.seed(ui);

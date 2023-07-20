@@ -1656,6 +1656,7 @@ dependencies = [
  "plain_wallet",
  "project-root",
  "rand 0.8.5",
+ "serde_json",
  "sha256",
  "tokio",
 ]
