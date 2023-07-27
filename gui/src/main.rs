@@ -1,16 +1,25 @@
-use std::{collections::HashSet, net::SocketAddr, path::PathBuf, str::FromStr};
+use std::{
+    collections::{HashMap, HashSet},
+    net::SocketAddr,
+    path::PathBuf,
+    str::FromStr,
+};
 
 use custom::{Authorization, CustomContent, CustomState};
 use eframe::egui;
 use futures::task::LocalSpawnExt;
 use plain_miner::MainClient as _;
-use plain_types::bitcoin;
+use plain_types::{bitcoin, GetValue, OutPoint, Transaction};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let native_options = eframe::NativeOptions::default();
     let app = MyEguiApp::new().await?;
-    eframe::run_native("My egui App", native_options, Box::new(|cc| Box::new(app)));
+    eframe::run_native(
+        "Plain Sidechain",
+        native_options,
+        Box::new(|cc| Box::new(app)),
+    );
     Ok(())
 }
 
@@ -20,24 +29,28 @@ type Miner = plain_miner::Miner<Authorization, CustomContent>;
 
 type Output = plain_types::Output<CustomContent>;
 type AuthorizedTransaction = plain_types::AuthorizedTransaction<Authorization, CustomContent>;
-
-#[derive(Clone)]
-struct Config {
-    net_addr: SocketAddr,
-    datadir: PathBuf,
-}
+type FilledTransaction = plain_types::FilledTransaction<CustomContent>;
 
 #[derive(Clone)]
 struct MyEguiApp {
     node: Node,
     wallet: Wallet,
     miner: Miner,
-    config: Config,
     seed: String,
     passphrase: String,
     address: Option<plain_types::Address>,
     deposit: bool,
     bmm_bribe: String,
+
+    transaction: FilledTransaction,
+    output_address: String,
+    output_value: String,
+    output_main_address: String,
+    output_main_fee: String,
+
+    withdrawal: bool,
+
+    utxos: HashMap<OutPoint, Output>,
 
     destination: String,
     value: String,
@@ -65,14 +78,26 @@ impl MyEguiApp {
         let wallet_path = datadir.join("wallet.mdb");
         let wallet = Wallet::new(&wallet_path)?;
         let miner = Miner::new(0, "localhost", 18443)?;
-        let config = Config { net_addr, datadir };
 
         let (mine_tx, mut mine_rx) = tokio::sync::mpsc::channel(32);
         let app = MyEguiApp {
+            transaction: FilledTransaction {
+                transaction: Transaction {
+                    inputs: vec![],
+                    outputs: vec![],
+                },
+                spent_utxos: vec![],
+            },
+            output_address: "".into(),
+            output_value: "".into(),
+            output_main_address: "".into(),
+            output_main_fee: "".into(),
+
+            withdrawal: false,
+            utxos: wallet.get_utxos().unwrap(),
             node,
             wallet,
             miner,
-            config,
             seed: "".into(),
             passphrase: "".into(),
             address: None,
@@ -228,125 +253,6 @@ impl MyEguiApp {
         });
     }
 
-    fn utxos(&mut self, ui: &mut egui::Ui) {
-        let mut utxos: Vec<_> = self.wallet.get_utxos().unwrap().into_iter().collect();
-        utxos.sort_by_key(|(outpoint, _)| plain_types::hash(outpoint));
-        let deposits = utxos
-            .iter()
-            .filter(|(outpoint, _)| matches!(outpoint, plain_types::OutPoint::Deposit(_)));
-        let values = utxos.iter().filter(|(outpoint, output)| {
-            matches!(outpoint, plain_types::OutPoint::Regular { .. }) && output.content.is_value()
-        });
-        let withdrawals = utxos
-            .iter()
-            .filter(|(outpoint, output)| output.content.is_withdrawal());
-        let customs = utxos.iter().filter(|(outpoint, output)| {
-            matches!(outpoint, plain_types::OutPoint::Regular { .. }) && output.content.is_custom()
-        });
-        let coinbases = utxos
-            .iter()
-            .filter(|(outpoint, _)| matches!(outpoint, plain_types::OutPoint::Coinbase { .. }));
-        egui::CollapsingHeader::new("Deposits").show(ui, |ui| {
-            egui::ScrollArea::vertical()
-                .max_height(300.)
-                .show(ui, |ui| {
-                    egui::Grid::new("regulars")
-                        .striped(true)
-                        .max_col_width(400.)
-                        .show(ui, |ui| {
-                            for (outpoint, output) in deposits {
-                                ui.vertical(|ui| {
-                                    ui.label(format!("outpoint: {outpoint}"));
-                                    ui.label(format!("address: {}", output.address,));
-                                    ui.label(format!("content: {:?}", output.content));
-                                });
-                                ui.end_row();
-                            }
-                        });
-                });
-        });
-
-        egui::CollapsingHeader::new("Values").show(ui, |ui| {
-            egui::ScrollArea::vertical()
-                .max_height(300.)
-                .show(ui, |ui| {
-                    egui::Grid::new("values")
-                        .striped(true)
-                        .max_col_width(400.)
-                        .show(ui, |ui| {
-                            for (outpoint, output) in values {
-                                ui.vertical(|ui| {
-                                    ui.label(format!("outpoint: {outpoint}"));
-                                    ui.label(format!("address: {}", output.address,));
-                                    ui.label(format!("content: {:?}", output.content));
-                                });
-                                ui.end_row();
-                            }
-                        });
-                });
-        });
-
-        egui::CollapsingHeader::new("Withdrawals").show(ui, |ui| {
-            egui::ScrollArea::vertical()
-                .max_height(300.)
-                .show(ui, |ui| {
-                    egui::Grid::new("withdrawals")
-                        .striped(true)
-                        .max_col_width(400.)
-                        .show(ui, |ui| {
-                            for (outpoint, output) in withdrawals {
-                                ui.vertical(|ui| {
-                                    ui.label(format!("outpoint: {outpoint}"));
-                                    ui.label(format!("address: {}", output.address,));
-                                    ui.label(format!("content: {:?}", output.content));
-                                });
-                                ui.end_row();
-                            }
-                        });
-                });
-        });
-
-        egui::CollapsingHeader::new("Customs").show(ui, |ui| {
-            egui::ScrollArea::vertical()
-                .max_height(300.)
-                .show(ui, |ui| {
-                    egui::Grid::new("customs")
-                        .striped(true)
-                        .max_col_width(400.)
-                        .show(ui, |ui| {
-                            for (outpoint, output) in customs {
-                                ui.vertical(|ui| {
-                                    ui.label(format!("outpoint: {outpoint}"));
-                                    ui.label(format!("address: {}", output.address,));
-                                    ui.label(format!("content: {:?}", output.content));
-                                });
-                                ui.end_row();
-                            }
-                        });
-                });
-        });
-
-        egui::CollapsingHeader::new("Coinbases").show(ui, |ui| {
-            egui::ScrollArea::vertical()
-                .max_height(300.)
-                .show(ui, |ui| {
-                    egui::Grid::new("coinbases")
-                        .striped(true)
-                        .max_col_width(400.)
-                        .show(ui, |ui| {
-                            for (outpoint, output) in coinbases {
-                                ui.vertical(|ui| {
-                                    ui.label(format!("outpoint: {outpoint}"));
-                                    ui.label(format!("address: {}", output.address,));
-                                    ui.label(format!("content: {:?}", output.content));
-                                });
-                                ui.end_row();
-                            }
-                        });
-                });
-        });
-    }
-
     fn deposit(&mut self, ui: &mut egui::Ui) {
         let deposit_amount_edit =
             egui::TextEdit::singleline(&mut self.deposit_amount).hint_text("deposit amount");
@@ -389,10 +295,20 @@ impl MyEguiApp {
             self.mine_tx.try_send(()).unwrap_or_else(|err| {
                 println!("failed to trigger miner: {err}");
             });
+            self.utxos = self.wallet.get_utxos().unwrap();
+            self.transaction = FilledTransaction {
+                transaction: Transaction {
+                    inputs: vec![],
+                    outputs: vec![],
+                },
+                spent_utxos: vec![],
+            };
         }
     }
 
     fn pending_withdrawal_bundle(&mut self, ui: &mut egui::Ui) {
+        // TODO: Show how much time is left until it becomes spent or failed.
+        // TODO: Check if mainchain miners are upvoting the wrong bundle.
         let withdrawal_bundle = self.node.get_pending_withdrawal_bundle().unwrap();
         match withdrawal_bundle {
             Some(bundle) => {
@@ -534,6 +450,267 @@ impl MyEguiApp {
             }
         }
     }
+
+    fn connections(&mut self, ui: &mut egui::Ui) {}
+    fn outpoint(&mut self, ui: &mut egui::Ui) {}
+    fn output(&mut self, ui: &mut egui::Ui) {}
+    fn mempool(&mut self, ui: &mut egui::Ui) {}
+
+    fn transaction_builder(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+        egui::SidePanel::left("inputs").show_inside(ui, |ui| {
+            ui.heading("Spend UTXOs");
+            self.utxo_selector(ui);
+        });
+
+        egui::SidePanel::right("outputs").show_inside(ui, |ui| {
+            ui.heading("Create Output");
+            self.utxo_creator(ui);
+        });
+        egui::CentralPanel::default().show_inside(ui, |ui| {
+            ui.heading("Summary");
+            egui::Grid::new("inputs")
+                .striped(true)
+                .max_col_width(400.)
+                .show(ui, |ui| {
+                    let txid = self.transaction.transaction.txid();
+                    ui.label(format!("txid: {txid}"));
+                    ui.end_row();
+                    let value_in = bitcoin::Amount::from_sat(self.transaction.get_value_in());
+                    ui.label(format!("value_in: {value_in}"));
+                    ui.end_row();
+                    let value_out = bitcoin::Amount::from_sat(self.transaction.get_value_out());
+                    ui.label(format!("value_out: {value_out}"));
+                    ui.end_row();
+                    let fee = self.transaction.get_fee();
+                    match fee {
+                        Some(fee) => {
+                            let fee = bitcoin::Amount::from_sat(fee);
+                            ui.label(format!("fee: {fee}"));
+                        }
+                        None => {
+                            ui.label("value in < value out");
+                        }
+                    }
+                    ui.end_row();
+                });
+
+            if ui
+                .add_enabled(
+                    self.node
+                        .state
+                        .validate_filled_transaction(&self.transaction)
+                        .is_ok(),
+                    egui::Button::new("Sign and Send"),
+                )
+                .clicked()
+            {
+                let transaction = self
+                    .wallet
+                    .authorize(self.transaction.transaction.clone())
+                    .unwrap();
+                if futures::executor::block_on(self.node.submit_transaction(&transaction)).is_err()
+                {
+                    self.error = true;
+                    self.error_text = "Can't add double spending transaction.".into();
+                }
+            }
+            egui::CollapsingHeader::new("Transaction Inputs").show(ui, |ui| {
+                egui::ScrollArea::vertical()
+                    .max_height(300.)
+                    .show(ui, |ui| {
+                        egui::Grid::new("inputs")
+                            .striped(true)
+                            .max_col_width(400.)
+                            .show(ui, |ui| {
+                                let mut removed = None;
+                                for (index, (input, spent_utxo)) in self
+                                    .transaction
+                                    .transaction
+                                    .inputs
+                                    .iter()
+                                    .zip(self.transaction.spent_utxos.iter())
+                                    .enumerate()
+                                {
+                                    ui.vertical(|ui| {
+                                        ui.label(format!("input: {input}"));
+                                        ui.label(format!("address: {}", spent_utxo.address,));
+                                        let value =
+                                            bitcoin::Amount::from_sat(spent_utxo.get_value());
+                                        ui.label(format!("value: {}", value));
+                                        ui.label(format!("content: {:?}", spent_utxo.content));
+                                    });
+                                    if ui.button("Remove").clicked() {
+                                        self.utxos.insert(*input, spent_utxo.clone());
+                                        removed = Some(index);
+                                    }
+                                    ui.end_row();
+                                }
+                                if let Some(index) = removed {
+                                    self.transaction.transaction.inputs.remove(index);
+                                    self.transaction.spent_utxos.remove(index);
+                                }
+                            });
+                    });
+            });
+
+            egui::CollapsingHeader::new("Transaction Outputs").show(ui, |ui| {
+                egui::ScrollArea::vertical()
+                    .max_height(300.)
+                    .show(ui, |ui| {
+                        egui::Grid::new("outputs")
+                            .striped(true)
+                            .max_col_width(400.)
+                            .show(ui, |ui| {
+                                let mut remove = None;
+                                for (vout, output) in
+                                    self.transaction.transaction.outputs.iter().enumerate()
+                                {
+                                    ui.vertical(|ui| {
+                                        ui.label(format!("vout: {vout}"));
+                                        ui.label(format!("address: {}", output.address,));
+                                        let value = bitcoin::Amount::from_sat(output.get_value());
+                                        ui.label(format!("value: {}", value));
+                                        ui.label(format!("content: {:?}", output.content));
+                                    });
+                                    if ui.button("Remove").clicked() {
+                                        remove = Some(vout);
+                                    }
+                                    ui.end_row();
+                                }
+                                if let Some(vout) = remove {
+                                    self.transaction.transaction.outputs.remove(vout);
+                                }
+                            });
+                    });
+            });
+        });
+    }
+
+    fn utxo_selector(&mut self, ui: &mut egui::Ui) {
+        let balance: u64 = self.utxos.values().map(GetValue::get_value).sum();
+        let balance = bitcoin::Amount::from_sat(balance);
+        let mut balance = balance.to_string_in(bitcoin::Denomination::Bitcoin);
+        ui.heading("Total Funds Available");
+        ui.horizontal(|ui| {
+            ui.text_edit_singleline(&mut balance);
+            ui.label("BTC");
+        });
+        ui.heading("UTXOs");
+        let mut removed = vec![];
+        let mut utxos: Vec<_> = self
+            .utxos
+            .iter()
+            .map(|(outpoint, output)| (outpoint.clone(), output.clone()))
+            .collect();
+        utxos.sort_by_key(|(outpoint, _)| plain_types::hash(outpoint));
+        egui::ScrollArea::vertical()
+            .max_height(300.)
+            .show(ui, |ui| {
+                egui::Grid::new("utxos")
+                    .striped(true)
+                    .max_col_width(400.)
+                    .show(ui, |ui| {
+                        for (outpoint, output) in utxos {
+                            ui.vertical(|ui| {
+                                ui.label(format!("outpoint: {outpoint}"));
+                                ui.label(format!("address: {}", output.address,));
+                                let value = bitcoin::Amount::from_sat(output.get_value());
+                                ui.label(format!("value: {}", value));
+                                ui.label(format!("content: {:?}", output.content));
+                            });
+                            if ui.button("Select").clicked() {
+                                self.transaction.transaction.inputs.push(outpoint);
+                                self.transaction.spent_utxos.push(output);
+                                removed.push(outpoint);
+                            }
+                            ui.end_row();
+                        }
+                    });
+            });
+        for outpoint in &removed {
+            self.utxos.remove(outpoint);
+        }
+    }
+
+    fn utxo_creator(&mut self, ui: &mut egui::Ui) {
+        ui.checkbox(&mut self.withdrawal, "Withdrawal");
+        ui.horizontal(|ui| {
+            let address_edit =
+                egui::TextEdit::singleline(&mut self.output_address).hint_text("address");
+            ui.add(address_edit);
+            if ui.button("Generate").clicked() {
+                let address = self.wallet.get_new_address().unwrap();
+                self.output_address = format!("{address}");
+            }
+        });
+        ui.horizontal(|ui| {
+            let value_edit = egui::TextEdit::singleline(&mut self.output_value).hint_text("value");
+            ui.add(value_edit);
+            ui.label("BTC");
+        });
+        if self.withdrawal {
+            ui.horizontal(|ui| {
+                let main_address_edit = egui::TextEdit::singleline(&mut self.output_main_address)
+                    .hint_text("main_address");
+                ui.add(main_address_edit);
+                if ui.button("Generate").clicked() {
+                    let main_address = futures::executor::block_on(
+                        self.miner.drivechain.client.getnewaddress("", "legacy"),
+                    )
+                    .unwrap();
+                    let main_address: bitcoin::Address<bitcoin::address::NetworkChecked> =
+                        main_address
+                            .require_network(bitcoin::Network::Regtest)
+                            .unwrap();
+                    self.output_main_address = format!("{main_address}");
+                }
+            });
+            ui.horizontal(|ui| {
+                let main_fee_edit = egui::TextEdit::singleline(&mut self.output_main_fee)
+                    .hint_text("Mainchain Fee");
+                ui.add(main_fee_edit);
+                ui.label("BTC");
+            });
+        }
+
+        let address: Option<plain_types::Address> = self.output_address.parse().ok();
+        let value: Option<bitcoin::Amount> =
+            bitcoin::Amount::from_str_in(&self.output_value, bitcoin::Denomination::Bitcoin).ok();
+        let main_address: Option<bitcoin::Address<bitcoin::address::NetworkUnchecked>> =
+            self.output_main_address.parse().ok();
+        let main_fee: Option<bitcoin::Amount> =
+            bitcoin::Amount::from_str_in(&self.output_main_fee, bitcoin::Denomination::Bitcoin)
+                .ok();
+        if ui
+            .add_enabled(
+                address.is_some()
+                    && value.is_some()
+                    && (!self.withdrawal
+                        || self.withdrawal && main_address.is_some() && main_fee.is_some()),
+                egui::Button::new("Create"),
+            )
+            .clicked()
+        {
+            let output = if self.withdrawal {
+                Output {
+                    address: address.unwrap(),
+                    content: plain_types::Content::Withdrawal {
+                        value: value.unwrap().to_sat(),
+                        main_address: main_address.unwrap(),
+                        main_fee: main_fee.unwrap().to_sat(),
+                    },
+                }
+            } else {
+                Output {
+                    address: address.unwrap(),
+                    content: plain_types::Content::Value(value.unwrap().to_sat()),
+                }
+            };
+            self.transaction.transaction.outputs.push(output);
+        }
+        let num_addresses = self.wallet.get_num_addresses().unwrap();
+        ui.label(format!("{num_addresses} addresses generated"));
+    }
 }
 
 impl eframe::App for MyEguiApp {
@@ -541,6 +718,9 @@ impl eframe::App for MyEguiApp {
         // ctx.set_pixels_per_point(2.);
         egui::CentralPanel::default().show(ctx, |ui| {
             if self.wallet.has_seed().unwrap() {
+                egui::Window::new("Transaction Builder").show(ctx, |ui| {
+                    self.transaction_builder(ctx, ui);
+                });
                 egui::Window::new("Error")
                     .open(&mut self.error)
                     .show(ctx, |ui| {
@@ -552,6 +732,7 @@ impl eframe::App for MyEguiApp {
                 egui::Window::new("Deposit").show(ctx, |ui| {
                     self.deposit(ui);
                 });
+                /*
                 egui::Window::new("Spendable UTXOs").show(ctx, |ui| {
                     self.utxos(ui);
                 });
@@ -567,6 +748,7 @@ impl eframe::App for MyEguiApp {
                 egui::Window::new("Withdraw").show(ctx, |ui| {
                     self.withdraw(ui);
                 });
+                */
                 egui::Window::new("Pending Withdrawal Bundle").show(ctx, |ui| {
                     self.pending_withdrawal_bundle(ui);
                 });

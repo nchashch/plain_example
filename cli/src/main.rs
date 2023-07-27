@@ -1,5 +1,6 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use custom::{Authorization, CustomContent};
 use plain_api::{
     node::{node_client::NodeClient, *},
     tonic::Request,
@@ -10,7 +11,6 @@ use plain_types::{
     Address, BlockHash, Body, Header, OutPoint,
 };
 use std::{collections::HashMap, path::PathBuf};
-use custom::{Authorization, CustomContent};
 
 type Output = plain_types::Output<CustomContent>;
 type AuthorizedTransaction = plain_types::AuthorizedTransaction<Authorization, CustomContent>;
