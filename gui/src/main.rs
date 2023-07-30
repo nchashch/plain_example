@@ -301,7 +301,7 @@ impl MyEguiApp {
     fn mempool(&mut self, ui: &mut egui::Ui) {}
 
     fn transaction(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Summary");
+        ui.heading("Transaction Summary");
         egui::Grid::new("inputs")
             .striped(true)
             .max_col_width(400.)
@@ -585,9 +585,7 @@ impl eframe::App for MyEguiApp {
                         ui.label(&self.error_text);
                     });
             } else {
-                ui.centered_and_justified(|_| {});
-                ui.vertical_centered(|ui| {
-                    ui.heading("Set Seed");
+                egui::Window::new("Set Seed").show(ctx, |ui| {
                     self.seed(ui);
                 });
             }
