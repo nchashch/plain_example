@@ -8,8 +8,8 @@ use std::{
 use custom::{Authorization, CustomContent, CustomState};
 use eframe::egui;
 use futures::task::LocalSpawnExt;
-use plain_miner::MainClient as _;
-use plain_types::{bitcoin, GetValue, OutPoint, Transaction};
+use ddk::miner::MainClient as _;
+use ddk::types::{bitcoin, GetValue, OutPoint, Transaction};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -23,13 +23,13 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-type Node = plain_node::Node<Authorization, CustomContent, CustomState>;
-type Wallet = plain_wallet::Wallet<CustomContent>;
-type Miner = plain_miner::Miner<Authorization, CustomContent>;
+type Node = ddk::node::Node<Authorization, CustomContent, CustomState>;
+type Wallet = ddk::wallet::Wallet<CustomContent>;
+type Miner = ddk::miner::Miner<Authorization, CustomContent>;
 
-type Output = plain_types::Output<CustomContent>;
-type AuthorizedTransaction = plain_types::AuthorizedTransaction<Authorization, CustomContent>;
-type FilledTransaction = plain_types::FilledTransaction<CustomContent>;
+type Output = ddk::types::Output<CustomContent>;
+type AuthorizedTransaction = ddk::types::AuthorizedTransaction<Authorization, CustomContent>;
+type FilledTransaction = ddk::types::FilledTransaction<CustomContent>;
 
 #[derive(Clone)]
 struct MyEguiApp {
@@ -38,7 +38,7 @@ struct MyEguiApp {
     miner: Miner,
     seed: String,
     passphrase: String,
-    address: Option<plain_types::Address>,
+    address: Option<ddk::types::Address>,
     deposit: bool,
     bmm_bribe: String,
 
@@ -65,7 +65,7 @@ impl MyEguiApp {
         const DEFAULT_NET_PORT: u16 = 4000;
         let net_port = DEFAULT_NET_PORT;
         let net_addr: SocketAddr = format!("127.0.0.1:{net_port}").parse()?;
-        let datadir = project_root::get_project_root()?.join("target/plain");
+        let datadir = project_root::get_project_root()?.join("target/ddk");
         let node = Node::new(&datadir, net_addr, "localhost", 18443)?;
         let wallet_path = datadir.join("wallet.mdb");
         let wallet = Wallet::new(&wallet_path)?;
@@ -124,15 +124,15 @@ impl MyEguiApp {
                     0 => vec![],
                     _ => vec![Output {
                         address: app0.wallet.get_new_address().unwrap(),
-                        content: plain_types::Content::Value(fee),
+                        content: ddk::types::Content::Value(fee),
                     }],
                 };
-                let body = plain_types::Body::new(transactions, coinbase);
+                let body = ddk::types::Body::new(transactions, coinbase);
                 // dbg!(&body);
                 let prev_side_hash = app0.node.get_best_hash().unwrap();
                 let prev_main_hash = app0.miner.drivechain.get_mainchain_tip().await.unwrap();
                 println!("got mainchain tip");
-                let header = plain_types::Header {
+                let header = ddk::types::Header {
                     merkle_root: body.compute_merkle_root(),
                     prev_side_hash,
                     prev_main_hash,
@@ -200,7 +200,7 @@ impl MyEguiApp {
             let address = self.wallet.get_new_address().unwrap();
             let address = format_deposit_address(&format!("{address}"));
             futures::executor::block_on(self.miner.drivechain.client.createsidechaindeposit(
-                plain_node::THIS_SIDECHAIN,
+                ddk::node::THIS_SIDECHAIN,
                 &address,
                 amount.into(),
                 fee.into(),
@@ -240,7 +240,7 @@ impl MyEguiApp {
         let withdrawal_bundle = self.node.get_pending_withdrawal_bundle().unwrap();
         match withdrawal_bundle {
             Some(bundle) => {
-                use plain_types::GetValue;
+                use ddk::types::GetValue;
                 let pending_balance = bundle
                     .spent_utxos
                     .values()
@@ -256,7 +256,7 @@ impl MyEguiApp {
                 });
                 ui.heading("Pending Bundle");
                 let mut spent_utxos: Vec<_> = bundle.spent_utxos.iter().collect();
-                spent_utxos.sort_by_key(|(outpoint, _)| plain_types::hash(outpoint));
+                spent_utxos.sort_by_key(|(outpoint, _)| ddk::types::hash(outpoint));
                 egui::CollapsingHeader::new("Pending Withdrawals").show(ui, |ui| {
                     egui::ScrollArea::vertical().show(ui, |ui| {
                         egui::Grid::new("pending_withdrawals")
@@ -445,7 +445,7 @@ impl MyEguiApp {
             .iter()
             .map(|(outpoint, output)| (outpoint.clone(), output.clone()))
             .collect();
-        utxos.sort_by_key(|(outpoint, _)| plain_types::hash(outpoint));
+        utxos.sort_by_key(|(outpoint, _)| ddk::types::hash(outpoint));
         egui::ScrollArea::vertical().show(ui, |ui| {
             egui::Grid::new("utxos")
                 .striped(true)
@@ -514,7 +514,7 @@ impl MyEguiApp {
             });
         }
 
-        let address: Option<plain_types::Address> = self.output_address.parse().ok();
+        let address: Option<ddk::types::Address> = self.output_address.parse().ok();
         let value: Option<bitcoin::Amount> =
             bitcoin::Amount::from_str_in(&self.output_value, bitcoin::Denomination::Bitcoin).ok();
         let main_address: Option<bitcoin::Address<bitcoin::address::NetworkUnchecked>> =
@@ -535,7 +535,7 @@ impl MyEguiApp {
             let output = if self.withdrawal {
                 Output {
                     address: address.unwrap(),
-                    content: plain_types::Content::Withdrawal {
+                    content: ddk::types::Content::Withdrawal {
                         value: value.unwrap().to_sat(),
                         main_address: main_address.unwrap(),
                         main_fee: main_fee.unwrap().to_sat(),
@@ -544,7 +544,7 @@ impl MyEguiApp {
             } else {
                 Output {
                     address: address.unwrap(),
-                    content: plain_types::Content::Value(value.unwrap().to_sat()),
+                    content: ddk::types::Content::Value(value.unwrap().to_sat()),
                 }
             };
             self.transaction.transaction.outputs.push(output);

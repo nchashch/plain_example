@@ -7,12 +7,9 @@ edition = "2021"
 
 [dependencies]
 custom = { path = "../custom" }
+plain_api = { path = "../api" }
 
-# plain_api = { git = "https://github.com/nchashch/plain" }
-# plain_node = { git = "https://github.com/nchashch/plain" }
-
-plain_node = { path = "../../plain/node" }
-plain_api = { path = "../../plain/api" }
+ddk = { path = "../../ddk/ddk" }
 
 heed = { git = "https://github.com/meilisearch/heed", tag = "v0.12.4" }
 anyhow = "1.0.71"

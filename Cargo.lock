@@ -725,9 +725,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.3.17"
+version = "4.3.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b0827b011f6f8ab38590295339817b0d26f344aa4932c3ced71b45b0c54b4a9"
+checksum = "5fd304a20bff958a57f04c4e96a2e7594cc4490a0e809cbd48bb6437edaa452d"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -736,9 +736,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.3.17"
+version = "4.3.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9441b403be87be858db6a23edb493e7f694761acdc3343d5a0fcaafd304cbc9e"
+checksum = "01c6a3f08f1fe5662a35cfe393aec09c4df95f60ee93b7556505260f75eee9e1"
 dependencies = [
  "anstream",
  "anstyle",
@@ -773,10 +773,8 @@ dependencies = [
  "bip39",
  "clap",
  "custom",
+ "ddk",
  "plain_api",
- "plain_miner",
- "plain_types",
- "plain_wallet",
  "project-root",
  "rpassword",
  "sha256",
@@ -1000,12 +998,164 @@ dependencies = [
 name = "custom"
 version = "0.1.0"
 dependencies = [
+ "ddk",
  "heed",
- "plain_authorization",
- "plain_node",
- "plain_state",
- "plain_types",
  "serde",
+]
+
+[[package]]
+name = "ddk"
+version = "0.1.0"
+dependencies = [
+ "ddk_archive",
+ "ddk_authorization",
+ "ddk_mempool",
+ "ddk_miner",
+ "ddk_net",
+ "ddk_node",
+ "ddk_state",
+ "ddk_types",
+ "ddk_wallet",
+ "heed",
+]
+
+[[package]]
+name = "ddk_archive"
+version = "0.1.0"
+dependencies = [
+ "ddk_types",
+ "heed",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
+name = "ddk_authorization"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "ddk_types",
+ "ed25519-dalek",
+ "rayon",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
+name = "ddk_drivechain"
+version = "0.1.0"
+dependencies = [
+ "base64 0.21.2",
+ "ddk_types",
+ "hex",
+ "http",
+ "jsonrpsee",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
+name = "ddk_mempool"
+version = "0.1.0"
+dependencies = [
+ "ddk_types",
+ "heed",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
+name = "ddk_miner"
+version = "0.1.0"
+dependencies = [
+ "base64 0.21.2",
+ "ddk_drivechain",
+ "ddk_types",
+ "hex",
+ "http",
+ "jsonrpsee",
+ "thiserror",
+]
+
+[[package]]
+name = "ddk_net"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "byteorder",
+ "bytes",
+ "ddk_archive",
+ "ddk_drivechain",
+ "ddk_mempool",
+ "ddk_state",
+ "ddk_types",
+ "quinn",
+ "rcgen",
+ "rustls",
+ "serde",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
+name = "ddk_node"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "ddk_archive",
+ "ddk_drivechain",
+ "ddk_mempool",
+ "ddk_net",
+ "ddk_state",
+ "ddk_types",
+ "heed",
+ "project-root",
+ "prost",
+ "serde",
+ "thiserror",
+ "tokio",
+ "tonic",
+]
+
+[[package]]
+name = "ddk_state"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ddk_types",
+ "heed",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
+name = "ddk_types"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "bitcoin",
+ "blake3",
+ "bs58",
+ "hex",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
+name = "ddk_wallet"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "byteorder",
+ "ddk_authorization",
+ "ddk_types",
+ "ed25519-dalek-bip32",
+ "heed",
+ "serde",
+ "thiserror",
 ]
 
 [[package]]
@@ -1647,13 +1797,10 @@ dependencies = [
  "anyhow",
  "bip39",
  "custom",
+ "ddk",
  "eframe",
  "futures",
  "itertools 0.11.0",
- "plain_miner",
- "plain_node",
- "plain_types",
- "plain_wallet",
  "project-root",
  "rand 0.8.5",
  "serde_json",
@@ -2220,9 +2367,9 @@ dependencies = [
  "anyhow",
  "clap",
  "custom",
+ "ddk",
  "heed",
  "plain_api",
- "plain_node",
  "project-root",
  "prost",
  "tokio",
@@ -2726,149 +2873,13 @@ name = "plain_api"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bincode",
+ "ddk",
  "prost",
+ "serde",
+ "thiserror",
  "tonic",
  "tonic-build",
-]
-
-[[package]]
-name = "plain_archive"
-version = "0.1.0"
-dependencies = [
- "heed",
- "plain_types",
- "serde",
- "thiserror",
-]
-
-[[package]]
-name = "plain_authorization"
-version = "0.1.0"
-dependencies = [
- "bincode",
- "ed25519-dalek",
- "plain_types",
- "rayon",
- "serde",
- "thiserror",
-]
-
-[[package]]
-name = "plain_drivechain"
-version = "0.1.0"
-dependencies = [
- "base64 0.21.2",
- "hex",
- "http",
- "jsonrpsee",
- "plain_types",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
-]
-
-[[package]]
-name = "plain_mempool"
-version = "0.1.0"
-dependencies = [
- "heed",
- "plain_types",
- "serde",
- "thiserror",
-]
-
-[[package]]
-name = "plain_miner"
-version = "0.1.0"
-dependencies = [
- "base64 0.21.2",
- "hex",
- "http",
- "jsonrpsee",
- "plain_drivechain",
- "plain_types",
- "thiserror",
-]
-
-[[package]]
-name = "plain_net"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bincode",
- "byteorder",
- "bytes",
- "plain_archive",
- "plain_drivechain",
- "plain_mempool",
- "plain_state",
- "plain_types",
- "quinn",
- "rcgen",
- "rustls",
- "serde",
- "thiserror",
- "tokio",
-]
-
-[[package]]
-name = "plain_node"
-version = "0.1.0"
-dependencies = [
- "bincode",
- "heed",
- "plain_api",
- "plain_archive",
- "plain_drivechain",
- "plain_mempool",
- "plain_net",
- "plain_state",
- "plain_types",
- "project-root",
- "prost",
- "serde",
- "thiserror",
- "tokio",
- "tonic",
-]
-
-[[package]]
-name = "plain_state"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "heed",
- "plain_types",
- "serde",
- "thiserror",
-]
-
-[[package]]
-name = "plain_types"
-version = "0.1.0"
-dependencies = [
- "bincode",
- "bitcoin",
- "blake3",
- "bs58",
- "hex",
- "serde",
- "thiserror",
-]
-
-[[package]]
-name = "plain_wallet"
-version = "0.1.0"
-dependencies = [
- "bincode",
- "byteorder",
- "ed25519-dalek-bip32",
- "heed",
- "plain_authorization",
- "plain_types",
- "serde",
- "thiserror",
 ]
 
 [[package]]
@@ -3445,9 +3456,9 @@ checksum = "f638d531eccd6e23b980caf34876660d38e265409d8e99b397ab71eb3612fad0"
 
 [[package]]
 name = "serde"
-version = "1.0.173"
+version = "1.0.178"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e91f70896d6720bc714a4a57d22fc91f1db634680e65c8efe13323f1fa38d53f"
+checksum = "60363bdd39a7be0266a520dab25fdc9241d2f987b08a01e01f0ec6d06a981348"
 dependencies = [
  "serde_derive",
 ]
@@ -3463,9 +3474,9 @@ dependencies = [
 
 [[package]]
 name = "serde_derive"
-version = "1.0.173"
+version = "1.0.178"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a6250dde8342e0232232be9ca3db7aa40aceb5a3e5dd9bddbc00d99a007cde49"
+checksum = "f28482318d6641454cb273da158647922d1be6b5a2fcc6165cd89ebdd7ed576b"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3775,18 +3786,18 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "1.0.43"
+version = "1.0.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a35fc5b8971143ca348fa6df4f024d4d55264f3468c71ad1c2f365b0a4d58c42"
+checksum = "611040a08a0439f8248d1990b111c95baa9c704c805fa1f62104b39655fd7f90"
 dependencies = [
  "thiserror-impl",
 ]
 
 [[package]]
 name = "thiserror-impl"
-version = "1.0.43"
+version = "1.0.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "463fe12d7993d3b327787537ce8dd4dfa058de32fc2b195ef3cde03dc4771e8f"
+checksum = "090198534930841fab3a5d1bb637cde49e339654e606195f8d9c76eeb081dc96"
 dependencies = [
  "proc-macro2",
  "quote",

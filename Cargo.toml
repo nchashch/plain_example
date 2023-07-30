@@ -4,5 +4,6 @@ members = [
 "main",
 "cli",
 "gui",
-"custom",
+"api",
+"custom"
 ]

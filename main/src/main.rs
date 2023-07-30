@@ -1,9 +1,9 @@
 use anyhow::Result;
 use clap::Parser;
+use custom::{Authorization, CustomContent, CustomState};
 use plain_api::node::node_server::NodeServer;
 use std::{net::SocketAddr, path::PathBuf};
 use tonic::transport::Server;
-use custom::{Authorization, CustomContent, CustomState};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -17,7 +17,7 @@ async fn main() -> Result<()> {
     let datadir = args
         .datadir
         .unwrap_or(project_root::get_project_root()?.join("target/plain"));
-    let mut node = plain_node::Node::<Authorization, CustomContent, CustomState>::new(
+    let mut node = ddk::node::Node::<Authorization, CustomContent, CustomState>::new(
         &datadir,
         net_addr,
         "localhost",

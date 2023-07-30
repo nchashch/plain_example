@@ -8,10 +8,7 @@ edition = "2021"
 [dependencies]
 eframe = "0.22.0"
 
-plain_node = { path = "../../plain/node" }
-plain_types = { path = "../../plain/types" }
-plain_wallet = { path = "../../plain/wallet" }
-plain_miner = { path = "../../plain/miner" }
+ddk = { path = "../../ddk/ddk" }
 
 custom = { path = "../custom" }
 anyhow = "1.0.71"

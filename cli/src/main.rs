@@ -5,15 +5,15 @@ use plain_api::{
     node::{node_client::NodeClient, *},
     tonic::Request,
 };
-use plain_miner::Miner;
-use plain_types::{
+use ddk::miner::Miner;
+use ddk::types::{
     bitcoin::{self, Amount},
     Address, BlockHash, Body, Header, OutPoint,
 };
 use std::{collections::HashMap, path::PathBuf};
 
-type Output = plain_types::Output<CustomContent>;
-type AuthorizedTransaction = plain_types::AuthorizedTransaction<Authorization, CustomContent>;
+type Output = ddk::types::Output<CustomContent>;
+type AuthorizedTransaction = ddk::types::AuthorizedTransaction<Authorization, CustomContent>;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -26,7 +26,7 @@ async fn main() -> Result<()> {
     let mut client = NodeClient::connect(format!("http://[::1]:{port}")).await?;
     let mut miner = Miner::<Authorization, CustomContent>::new(0, "localhost", 18443)?;
     let wallet_path = datadir.join("wallet.mdb");
-    let wallet = plain_wallet::Wallet::<CustomContent>::new(&wallet_path)?;
+    let wallet = ddk::wallet::Wallet::<CustomContent>::new(&wallet_path)?;
     match args.command {
         Command::Net(net) => match net {
             Net::Connect { host, port } => {
@@ -160,7 +160,7 @@ async fn main() -> Result<()> {
                     0 => vec![],
                     _ => vec![Output {
                         address: wallet.get_new_address()?,
-                        content: plain_types::Content::Value(fee),
+                        content: ddk::types::Content::Value(fee),
                     }],
                 };
                 let body = Body::new(transactions, coinbase);
